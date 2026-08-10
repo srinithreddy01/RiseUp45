@@ -1,4 +1,4 @@
-const CACHE = 'stride-shell-v1'
+const CACHE = 'riseup-shell-v1'
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(['/'])))
