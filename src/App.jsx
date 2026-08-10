@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   BarChart3, Bell, BookOpen, CalendarDays, Check, CheckCircle2,
   ChevronRight, Circle, Clock3, Code2, Dumbbell, Ellipsis, Flame, Home,
-  MoreHorizontal, Plus, Settings, Target, Trash2, Trophy, X, Zap
+  Camera, LogOut, MoreHorizontal, Plus, Settings, Target, Trash2, Trophy, UserPlus, UserRound, X, Zap
 } from 'lucide-react'
 import './App.css'
 import { workoutForDate } from './data/workoutSchedule'
@@ -17,16 +17,34 @@ const nav = [
 const defaultLearning = { cards: [], dates: {} }
 const blankTask = () => ({ title: '', category: 'Personal', priority: 'Medium', dueDate: dateKey(), time: '', notes: '', recurrence: 'None' })
 const blankLearningCard = () => ({ title: '', description: '', unit: 'problems solved', color: '#3f6de0', short: '' })
+const defaultSettings = { theme: 'light', defaultReminder: '18:00', notifications: false, alarm: true, gymAlarm: true, gymAlarmTime: '16:30' }
 
 function App() {
-  const [tasks, setTasks] = useStoredState('stride.tasks', [])
-  const [learning, setLearning] = useStoredState('stride.learning', defaultLearning)
-  const [gym, setGym] = useStoredState('stride.gym', {})
-  const [dailyHistory, setDailyHistory] = useStoredState('stride.daily-history', {})
-  const [settings, setSettings] = useStoredState('stride.settings', { theme: 'light', defaultReminder: '18:00', notifications: false, alarm: true, gymAlarm: true, gymAlarmTime: '16:30' })
+  const [storedUsers, setUsers] = useStoredState('stride.users', [])
+  const [activeUserId, setActiveUserId] = useStoredState('stride.active-user', '')
+  const users = Array.isArray(storedUsers) ? storedUsers.filter(item => item && typeof item.id === 'string' && typeof item.username === 'string').map(item => ({ ...item, name: typeof item.name === 'string' && item.name.trim() ? item.name : item.username, photo: typeof item.photo === 'string' ? item.photo : '' })) : []
+  const user = users.find(item => item.id === activeUserId)
+  const createUser = ({ name, username }) => {
+    const cleanUsername = username.trim().replace(/^@+/, '')
+    if (!cleanUsername || users.some(item => item.username.toLowerCase() === cleanUsername.toLowerCase())) return false
+    const nextUser = { id: makeId(), name: name.trim() || cleanUsername, username: cleanUsername, photo: '', createdAt: new Date().toISOString(), legacyDataOwner: users.length === 0 }
+    setUsers(current => [...(Array.isArray(current) ? current : []), nextUser]); setActiveUserId(nextUser.id); return true
+  }
+  const updateUser = changes => setUsers(current => (Array.isArray(current) ? current : []).map(item => item.id === activeUserId ? { ...item, ...changes } : item))
+  if (!user) return <AccountScreen users={users} onChoose={setActiveUserId} onCreate={createUser}/>
+  return <Workspace user={user} users={users} updateUser={updateUser} onSwitchUser={() => setActiveUserId('')}/>
+}
+
+function Workspace({ user, users, updateUser, onSwitchUser }) {
+  const [tasks, setTasks] = useUserStoredState(user, 'tasks', [])
+  const [learning, setLearning] = useUserStoredState(user, 'learning', defaultLearning)
+  const [gym, setGym] = useUserStoredState(user, 'gym', {})
+  const [dailyHistory, setDailyHistory] = useUserStoredState(user, 'daily-history', {})
+  const [settings, setSettings] = useUserStoredState(user, 'settings', defaultSettings)
   const [page, setPage] = useState('home')
   const [form, setForm] = useState(null)
   const [menuTask, setMenuTask] = useState(null)
+  const [editingProfile, setEditingProfile] = useState(false)
   const [toast, setToast] = useState('')
   const reminded = useRef(new Set())
   const gymAlarmed = useRef(new Set())
@@ -55,20 +73,20 @@ function App() {
   useEffect(() => {
     const saveSnapshot = key => setDailyHistory(old => old[key] ? old : { ...old, [key]: makeDailySnapshot(key, tasks, gym, learning) })
     const recordDayBoundary = () => {
-      const current = dateKey(); const active = localStorage.getItem('stride.active-day')
+      const current = dateKey(); const active = localStorage.getItem(userStorageKey(user.id, 'active-day'))
       if (active && active !== current) {
         saveSnapshot(active)
         // Keep unfinished work visible tomorrow so it can be continued.
         setTasks(old => old.map(task => !task.completed && task.dueDate === active ? { ...task, dueDate: current, carriedForward: true } : task))
       }
-      localStorage.setItem('stride.active-day', current)
+      localStorage.setItem(userStorageKey(user.id, 'active-day'), current)
       const time = new Date()
       if (time.getHours() === 23 && time.getMinutes() >= 59) saveSnapshot(current)
     }
     recordDayBoundary()
     const id = setInterval(recordDayBoundary, 30000)
     return () => clearInterval(id)
-  }, [tasks, gym, learning, setDailyHistory, setTasks])
+  }, [tasks, gym, learning, setDailyHistory, setTasks, user.id])
   useEffect(() => {
     if (!settings.notifications || !('Notification' in window)) return
     const check = async () => {
@@ -151,10 +169,10 @@ function App() {
       <p className="side-label">ORGANIZE</p>
       <Nav selected={page} onSelect={selectPage} />
       <div className="sidebar-tip"><div className="tip-icon">✦</div><strong>Build your momentum</strong><p>Small daily actions lead to big changes.</p></div>
-      <div className="profile"><div className="avatar">S</div><div><strong>My workspace</strong><small>Personal plan</small></div><MoreHorizontal size={18}/></div>
+      <button className="profile" onClick={() => setEditingProfile(true)} aria-label="Edit profile"><Avatar user={user}/><div><strong>{user.name}</strong><small>@{user.username}</small></div><MoreHorizontal size={18}/></button>
     </aside>
     <main className="main-content">
-      <header className="topbar"><div><p className="eyebrow">{formatDate(new Date(), 'EEEE, MMMM d')}</p><h1>{page === 'home' ? 'Good morning, Srini 👋' : page[0].toUpperCase() + page.slice(1)}</h1></div><div className="top-actions"><button className="icon-button" onClick={() => notify('You are all caught up!')} aria-label="Notifications"><Bell size={20}/><span className="notification-dot"/></button><button className="primary-button" onClick={() => setForm(blankTask())}><Plus size={19}/> Add task</button></div></header>
+      <header className="topbar"><div><p className="eyebrow">{formatDate(new Date(), 'EEEE, MMMM d')}</p><h1>{page === 'home' ? `Good morning, ${user.name.split(' ')[0]} 👋` : page[0].toUpperCase() + page.slice(1)}</h1></div><div className="top-actions"><button className="icon-button" onClick={() => notify('You are all caught up!')} aria-label="Notifications"><Bell size={20}/><span className="notification-dot"/></button><button className="mobile-profile-button" onClick={() => setEditingProfile(true)} aria-label="Edit profile"><Avatar user={user}/></button><button className="primary-button" onClick={() => setForm(blankTask())}><Plus size={19}/> Add task</button></div></header>
       {page === 'home' && <Dashboard {...shared} />}
       {page === 'tasks' && <TasksPage {...shared} />}
       {page === 'gym' && <GymPage {...shared} />}
@@ -164,6 +182,7 @@ function App() {
     </main>
     <nav className="mobile-nav"><Nav selected={page} onSelect={selectPage} compact /></nav>
     {form && <TaskForm task={form} onClose={() => setForm(null)} onSave={saveTask} />}
+    {editingProfile && <ProfileModal user={user} users={users} updateUser={updateUser} onSwitchUser={onSwitchUser} onClose={() => setEditingProfile(false)} notify={notify}/>}
     {toast && <div className="toast"><CheckCircle2 size={18}/>{toast}</div>}
   </div>
 }
@@ -202,6 +221,12 @@ function CalendarView({ tasks, selectedDate, onSelect }) { const now = new Date(
 
 function Metric({ icon, label, value, trend }) { return <div className="metric-card"><span>{icon}</span><p>{label}</p><b>{value}</b><small>{trend}</small></div> }
 
+function Avatar({ user, large = false }) { const initials = (user.name || user.username || '?').split(' ').map(part => part[0]).join('').slice(0, 2).toUpperCase(); return <div className={`avatar ${large ? 'large-avatar' : ''}`}>{user.photo ? <img src={user.photo} alt={`${user.name}'s profile`}/> : initials}</div> }
+
+function AccountScreen({ users, onChoose, onCreate }) { const [draft, setDraft] = useState({ name: '', username: '' }); const [error, setError] = useState(''); const submit = event => { event.preventDefault(); const username = draft.username.trim().replace(/^@+/, ''); if (!/^[a-zA-Z0-9_-]{3,24}$/.test(username)) return setError('Use 3–24 letters, numbers, _ or - for your username.'); if (!onCreate(draft)) setError('That username is already in use on this device.') }; return <main className="account-screen"><section className="account-card"><div className="brand account-brand"><span className="brand-mark"><Zap size={19} fill="currentColor"/></span><span>stride.</span></div><p className="eyebrow">YOUR PERSONAL WORKSPACE</p><h1>{users.length ? 'Choose a workspace' : 'Create your workspace'}</h1><p className="account-copy">Every username has separate tasks, workouts, learning goals, and settings on this device.</p>{users.length > 0 && <div className="account-list">{users.map(user => <button key={user.id} className="account-user" onClick={() => onChoose(user.id)}><Avatar user={user}/><span><strong>{user.name}</strong><small>@{user.username}</small></span><ChevronRight size={18}/></button>)}</div>}<form className="account-form" onSubmit={submit}><div className="account-form-title"><UserPlus size={18}/><strong>{users.length ? 'Create another workspace' : 'Set up your profile'}</strong></div><label className="input-label">Display name<input required placeholder="e.g. Aisha Khan" value={draft.name} onChange={event => setDraft(current => ({ ...current, name: event.target.value }))}/></label><label className="input-label">Username<input required placeholder="e.g. aisha" value={draft.username} onChange={event => { setDraft(current => ({ ...current, username: event.target.value })); setError('') }}/></label>{error && <p className="form-error">{error}</p>}<button className="primary-button" type="submit"><UserRound size={17}/> Create workspace</button></form></section></main> }
+
+function ProfileModal({ user, users, updateUser, onSwitchUser, onClose, notify }) { const [draft, setDraft] = useState({ name: user.name, username: user.username, photo: user.photo || '' }); const photoInput = useRef(null); const pickPhoto = event => { const file = event.target.files?.[0]; if (!file) return; if (!file.type.startsWith('image/')) return notify('Please choose an image file'); if (file.size > 1500000) return notify('Choose an image smaller than 1.5 MB'); const reader = new FileReader(); reader.onload = () => setDraft(current => ({ ...current, photo: String(reader.result) })); reader.readAsDataURL(file) }; const save = event => { event.preventDefault(); const username = draft.username.trim().replace(/^@+/, ''); if (!draft.name.trim()) return notify('Enter a display name'); if (!/^[a-zA-Z0-9_-]{3,24}$/.test(username)) return notify('Username must be 3–24 letters, numbers, _ or -'); if (users.some(item => item.id !== user.id && item.username.toLowerCase() === username.toLowerCase())) return notify('That username is already in use'); updateUser({ name: draft.name.trim(), username, photo: draft.photo }); notify('Profile updated'); onClose() }; return <div className="modal-backdrop" onMouseDown={onClose}><form className="task-modal profile-modal" onMouseDown={event => event.stopPropagation()} onSubmit={save}><div className="modal-header"><div><p className="eyebrow">EDIT PROFILE</p><h2>Make this workspace yours</h2></div><button type="button" className="icon-button" onClick={onClose}><X/></button></div><div className="profile-editor"><Avatar user={{ ...user, ...draft }} large/><div><button type="button" className="secondary-button" onClick={() => photoInput.current?.click()}><Camera size={15}/> {draft.photo ? 'Change photo' : 'Add photo'}</button>{draft.photo && <button type="button" className="text-button remove-photo" onClick={() => setDraft(current => ({ ...current, photo: '' }))}>Remove</button>}<input ref={photoInput} className="hidden-input" type="file" accept="image/*" onChange={pickPhoto}/><small>JPG, PNG, or WebP · up to 1.5 MB</small></div></div><div className="form-two"><label className="input-label">Display name<input value={draft.name} onChange={event => setDraft(current => ({ ...current, name: event.target.value }))}/></label><label className="input-label">Username<input value={draft.username} onChange={event => setDraft(current => ({ ...current, username: event.target.value }))}/></label></div><div className="modal-actions"><button className="secondary-button" type="button" onClick={onSwitchUser}><LogOut size={16}/> Switch user</button><button className="primary-button" type="submit"><Check size={17}/> Save profile</button></div></form></div> }
+
 function SettingsPage({ settings, setSettings, notify, tasks, setTasks, gym, setGym, learning, setLearning, dailyHistory, playAlarm }) { const enableNotifications = async () => { if (!('Notification' in window)) return notify('Notifications are not supported in this browser'); const result = await Notification.requestPermission(); if (result === 'granted') { setSettings(s => ({ ...s, notifications: true })); playAlarm(); notify('Task reminders enabled') } else notify('Notification permission was not granted') }; const exportData = () => { const file = new Blob([JSON.stringify({ tasks, gym, learning, dailyHistory, settings, exportedAt: new Date().toISOString() }, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(file); const a = document.createElement('a'); a.href = url; a.download = `stride-backup-${dateKey()}.json`; a.click(); URL.revokeObjectURL(url); notify('Backup downloaded') }; const restoreData = event => { const file = event.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = () => { try { const backup = JSON.parse(reader.result); if (!Array.isArray(backup.tasks)) throw new Error(); setTasks(backup.tasks); setGym(backup.gym || {}); setLearning({ ...defaultLearning, ...(backup.learning || {}), cards: backup.learning?.cards || [] }); if (backup.settings) setSettings(backup.settings); notify('Backup restored') } catch { notify('That backup file is not valid') } }; reader.readAsText(file) }; const clearData = () => { if (!window.confirm('Delete every saved task, workout, and learning record from this browser?')) return; setTasks([]); setGym({}); setLearning(defaultLearning); notify('All activity data cleared') }; return <div className="settings-grid"><section className="panel settings-panel"><p className="eyebrow">APPEARANCE</p><h2>Make it yours</h2><label>Theme<div className="theme-options">{['light', 'dark', 'system'].map(t => <button onClick={() => setSettings(s => ({...s, theme: t}))} className={settings.theme === t ? 'selected' : ''} key={t}>{t[0].toUpperCase()+t.slice(1)}</button>)}</div></label></section><section className="panel settings-panel"><p className="eyebrow">REMINDERS</p><h2>Stay on track</h2><label className="switch-line"><div><strong>Browser notifications</strong><small>Enable this so task and gym alerts can be delivered.</small></div><button className={settings.notifications ? 'switch on' : 'switch'} onClick={enableNotifications}><i/></button></label><label className="switch-line alarm-line"><div><strong>Reminder alarm</strong><small>Play a short alert sound with each reminder.</small></div><button className={settings.alarm ? 'switch on' : 'switch'} onClick={() => { setSettings(s => ({ ...s, alarm: !s.alarm })); if (!settings.alarm) playAlarm() }}><i/></button></label><label className="switch-line alarm-line"><div><strong>Daily gym alarm</strong><small>"Time to go GYM!" at 4:30 PM every day.</small></div><button className={settings.gymAlarm !== false ? 'switch on' : 'switch'} onClick={() => setSettings(s => ({ ...s, gymAlarm: s.gymAlarm === false }))}><i/></button></label><label className="input-label">Gym alarm time<input type="time" value={settings.gymAlarmTime || '16:30'} onChange={e => setSettings(s => ({...s, gymAlarmTime: e.target.value}))}/></label><label className="input-label">Default reminder time<input type="time" value={settings.defaultReminder} onChange={e => setSettings(s => ({...s, defaultReminder: e.target.value}))}/></label></section><section className="panel settings-panel wide-settings"><p className="eyebrow">DATA & BACKUP</p><h2>Your data stays on this device</h2><p className="muted">Tasks, workouts, learning cards, daily archives, and logs are saved automatically. You can download a portable backup whenever you like and restore it on this device.</p><div className="data-actions"><button className="secondary-button" onClick={exportData}>Export backup</button><label className="secondary-button restore-button">Restore backup<input type="file" accept="application/json" onChange={restoreData}/></label><button className="delete-data" onClick={clearData}><Trash2 size={15}/> Delete all data</button></div></section></div> }
 
 function WeeklyBars({ data, tall = false }) { return <div className={`weekly-bars ${tall ? 'tall' : ''}`}>{data.map((day, i) => <div className="bar-col" key={day.key}><div className="bar-value">{day.value}%</div><div className="bar-track"><i style={{ height: `${Math.max(day.value, 5)}%` }} className={i === data.length - 1 ? 'today-bar' : ''}/></div><span>{day.label}</span></div>)}</div> }
@@ -211,6 +236,8 @@ function TaskForm({ task, onClose, onSave }) { const [draft, setDraft] = useStat
 function LearningCardForm({ card, onClose, onSave }) { const [draft, setDraft] = useState(card); const update = (key, nextValue) => setDraft(current => ({ ...current, [key]: nextValue })); return <div className="modal-backdrop" onMouseDown={onClose}><form className="task-modal" onMouseDown={event => event.stopPropagation()} onSubmit={event => { event.preventDefault(); onSave(draft) }}><div className="modal-header"><div><p className="eyebrow">{card.id ? 'EDIT LEARNING CARD' : 'NEW LEARNING CARD'}</p><h2>{card.id ? 'Update your tracker' : 'Track something new'}</h2></div><button type="button" className="icon-button" onClick={onClose}><X/></button></div><label className="input-label">Card title<input autoFocus required placeholder="e.g. LeetCode, React course, Reading" value={draft.title} onChange={event => update('title', event.target.value)}/></label><label className="input-label">Description<input placeholder="What are you working toward?" value={draft.description} onChange={event => update('description', event.target.value)}/></label><div className="form-two"><label className="input-label">Unit<select value={draft.unit} onChange={event => update('unit', event.target.value)}>{['problems solved','topics completed','lessons completed','chapters read','sessions'].map(item => <option key={item}>{item}</option>)}</select></label><label className="input-label">Card color<input type="color" value={draft.color} onChange={event => update('color', event.target.value)}/></label></div><div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button className="primary-button" type="submit"><Check size={18}/>{card.id ? 'Save changes' : 'Add card'}</button></div></form></div> }
 
 function Empty({ text }) { return <div className="empty"><CheckCircle2 size={23}/><span>{text}</span></div> }
+function userStorageKey(userId, key) { return `stride.user.${userId}.${key}` }
+function useUserStoredState(user, key, initial) { const storageKey = userStorageKey(user.id, key); const [state, setState] = useState(() => { try { const scoped = localStorage.getItem(storageKey); if (scoped) return JSON.parse(scoped); const legacy = user.legacyDataOwner ? localStorage.getItem(`stride.${key}`) : null; return legacy ? JSON.parse(legacy) : initial } catch { return initial } }); useEffect(() => localStorage.setItem(storageKey, JSON.stringify(state)), [storageKey, state]); return [state, setState] }
 function useStoredState(key, initial) { const [state, setState] = useState(() => { try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : initial } catch { return initial } }); useEffect(() => localStorage.setItem(key, JSON.stringify(state)), [key, state]); return [state, setState] }
 function formatTime(time) { const [h, m] = time.split(':').map(Number); return `${h % 12 || 12}:${String(m).padStart(2,'0')} ${h >= 12 ? 'PM' : 'AM'}` }
 function addMinutes(time, minutes) { if (!time) return new Date(Date.now() + minutes * 60000).toTimeString().slice(0, 5); const [hours, mins] = time.split(':').map(Number); return new Date(2000, 0, 1, hours, mins + minutes).toTimeString().slice(0, 5) }
