@@ -1,27 +1,44 @@
-const CACHE = 'riseup-shell-v1'
+self.addEventListener('install', () => self.skipWaiting())
 
-self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(['/'])))
-  self.skipWaiting()
-})
-
-self.addEventListener('activate', event => event.waitUntil(self.clients.claim()))
-
-self.addEventListener('fetch', event => {
-  if (event.request.method !== 'GET') return
-  event.respondWith(caches.match(event.request).then(hit => hit || fetch(event.request).then(response => {
-    const copy = response.clone()
-    caches.open(CACHE).then(cache => cache.put(event.request, copy))
-    return response
-  }).catch(() => caches.match('/'))))
+// This worker is used for notification actions.  Do not cache the Vite app
+// shell here: cache-first HTML and module requests can keep serving an older
+// build whose asset filenames no longer exist, leaving the page blank.
+self.addEventListener('activate', event => {
+  event.waitUntil(
+    caches.keys()
+      .then(keys => Promise.all(keys.map(key => caches.delete(key))))
+      .then(() => self.clients.claim())
+  )
 })
 
 self.addEventListener('notificationclick', event => {
   event.notification.close()
-  event.waitUntil((async () => {
-    const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
-    const client = clients[0] || await self.clients.openWindow('/')
-    client?.focus()
-    client?.postMessage({ type: 'reminder-action', action: event.action || 'reschedule', taskId: event.notification.data?.taskId })
-  })())
+
+  event.waitUntil(
+    (async () => {
+      const data = event.notification.data || {}
+      const action = event.action || 'open'
+
+      const clients = await self.clients.matchAll({
+        type: 'window',
+        includeUncontrolled: true
+      })
+
+      let client = clients[0]
+
+      if (!client) {
+        client = await self.clients.openWindow('/')
+      }
+
+      if (client) {
+        await client.focus()
+
+        client.postMessage({
+          type: 'reminder-action',
+          action,
+          taskId: data.taskId
+        })
+      }
+    })()
+  )
 })
