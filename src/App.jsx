@@ -50,6 +50,16 @@ function Workspace({ user, users, updateUser, onSwitchUser }) {
   const gymAlarmed = useRef(new Set())
   const audioContext = useRef(null)
   const today = dateKey()
+  const toggleTask = useCallback(id => setTasks(all => {
+    const target = all.find(t => t.id === id)
+    if (!target) return all
+    const next = all.map(t => t.id === id ? { ...t, completed: !t.completed } : t)
+    if (!target.completed && target.recurrence && target.recurrence !== 'None') {
+      const dueDate = nextOccurrence(target.dueDate, target.recurrence)
+      if (!all.some(t => t.title === target.title && t.dueDate === dueDate)) next.push({ ...target, id: makeId(), dueDate, completed: false, createdAt: today })
+    }
+    return next
+  }), [setTasks, today])
 
   useEffect(() => {
     const resolved = settings.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : settings.theme
@@ -125,16 +135,6 @@ function Workspace({ user, users, updateUser, onSwitchUser }) {
   const todayLearn = learning.dates?.[today] || {}
 
   const notify = text => { setToast(text); setTimeout(() => setToast(''), 2600) }
-  const toggleTask = useCallback(id => setTasks(all => {
-    const target = all.find(t => t.id === id)
-    if (!target) return all
-    const next = all.map(t => t.id === id ? { ...t, completed: !t.completed } : t)
-    if (!target.completed && target.recurrence && target.recurrence !== 'None') {
-      const dueDate = nextOccurrence(target.dueDate, target.recurrence)
-      if (!all.some(t => t.title === target.title && t.dueDate === dueDate)) next.push({ ...target, id: makeId(), dueDate, completed: false, createdAt: today })
-    }
-    return next
-  }), [setTasks, today])
   useEffect(() => {
     if (!navigator.serviceWorker) return
     const handleAction = event => {
@@ -237,8 +237,10 @@ function LearningCardForm({ card, onClose, onSave }) { const [draft, setDraft] =
 
 function Empty({ text }) { return <div className="empty"><CheckCircle2 size={23}/><span>{text}</span></div> }
 function userStorageKey(userId, key) { return `stride.user.${userId}.${key}` }
-function useUserStoredState(user, key, initial) { const storageKey = userStorageKey(user.id, key); const [state, setState] = useState(() => { try { const scoped = localStorage.getItem(storageKey); if (scoped) return JSON.parse(scoped); const legacy = user.legacyDataOwner ? localStorage.getItem(`stride.${key}`) : null; return legacy ? JSON.parse(legacy) : initial } catch { return initial } }); useEffect(() => localStorage.setItem(storageKey, JSON.stringify(state)), [storageKey, state]); return [state, setState] }
-function useStoredState(key, initial) { const [state, setState] = useState(() => { try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : initial } catch { return initial } }); useEffect(() => localStorage.setItem(key, JSON.stringify(state)), [key, state]); return [state, setState] }
+function isStoredValueValid(value, initial) { if (Array.isArray(initial)) return Array.isArray(value); if (initial && typeof initial === 'object') return Boolean(value) && typeof value === 'object' && !Array.isArray(value); return typeof value === typeof initial }
+function readStoredValue(key, initial) { try { const raw = localStorage.getItem(key); if (!raw) return initial; const value = JSON.parse(raw); return isStoredValueValid(value, initial) ? value : initial } catch { return initial } }
+function useUserStoredState(user, key, initial) { const storageKey = userStorageKey(user.id, key); const [state, setState] = useState(() => { const scoped = localStorage.getItem(storageKey); return scoped ? readStoredValue(storageKey, initial) : user.legacyDataOwner ? readStoredValue(`stride.${key}`, initial) : initial }); useEffect(() => localStorage.setItem(storageKey, JSON.stringify(state)), [storageKey, state]); return [state, setState] }
+function useStoredState(key, initial) { const [state, setState] = useState(() => readStoredValue(key, initial)); useEffect(() => localStorage.setItem(key, JSON.stringify(state)), [key, state]); return [state, setState] }
 function formatTime(time) { const [h, m] = time.split(':').map(Number); return `${h % 12 || 12}:${String(m).padStart(2,'0')} ${h >= 12 ? 'PM' : 'AM'}` }
 function addMinutes(time, minutes) { if (!time) return new Date(Date.now() + minutes * 60000).toTimeString().slice(0, 5); const [hours, mins] = time.split(':').map(Number); return new Date(2000, 0, 1, hours, mins + minutes).toTimeString().slice(0, 5) }
 function makeDailySnapshot(key, tasks, gym, learning) { const dayTasks = tasks.filter(task => task.dueDate === key); return { date: key, tasksTotal: dayTasks.length, tasksCompleted: dayTasks.filter(task => task.completed).length, gymCompleted: Boolean(gym[key]), learning: learning.dates?.[key] || {}, savedAt: new Date().toISOString() } }
