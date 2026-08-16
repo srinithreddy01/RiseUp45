@@ -21,4 +21,18 @@ dist-ssr
 *.ntvs*
 *.njsproj
 *.sln
+*.iml
 *.sw?
+
+# Flutter and Dart tooling
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.flutter-sdk/
+.packages
+.pub-cache/
+.pub/
+build/
+android/key.properties
+*.jks
+*.keystore
