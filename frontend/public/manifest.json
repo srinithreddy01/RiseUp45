@@ -1,0 +1,13 @@
+{
+  "name": "RiseUP — Daily Progress",
+  "short_name": "RiseUP",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f7f8fc",
+  "theme_color": "#3f6de0",
+  "icons": [
+    { "src": "/app-icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/app-icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ],
+  "description": "Your personal daily task, gym, and learning tracker."
+}

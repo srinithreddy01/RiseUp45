@@ -51,3 +51,12 @@ device, its Data safety declaration should be based on that behaviour unless
 you later add analytics, sign-in, or cloud sync.
 
 Android Studio is not used by this project. Use Flutter and Android SDK command-line tools to build Android. iOS builds require macOS with Xcode. App data is stored locally on the device with `shared_preferences`.
+
+
+## Alarm architecture and store readiness
+
+RiseUP is a Flutter app; the active implementation is in lib/ with platform Android code in ndroid/. It does not use a duplicate frontend/backend/mobile folder tree. A scheduled task stores its ID, title, scheduled time, completion state, and recurrence locally. Android schedules two independent AlarmManager events: **scheduled time - 5 minutes** for the Upcoming Task notification and **scheduled time** for the task alarm. Before each schedule it checks canScheduleExactAlarms() and uses setExactAndAllowWhileIdle() only when allowed; otherwise it deliberately uses Android's inexact idle-safe fallback.
+
+Android status: build-ready for internal-device testing. The manifest includes notification, vibration, exact-alarm, reboot, full-screen-intent, and foreground-service declarations. The alarm has the system alarm sound, vibration, lock-screen visibility, DONE and SNOOZE actions, edit/delete cancellation, recurring rescheduling, and reboot restoration. Test on physical devices (including a reboot, Doze, locked screen, and notification/alarm permissions) before production. Android 14+ full-screen intent use is limited to this alarm flow; complete the Play Console declaration and policy review for this core alarm functionality.
+
+iOS/App Store status: not submission-ready yet. iOS has local five-minute and task-time notifications, but Apple does not let a general third-party app guarantee a Clock-style continuously ringing alarm. Generate the iOS runner on macOS/Xcode, add signing, test on real iPhones, set the privacy manifest and store listing, then submit through App Store Connect. Do not market iOS behaviour as identical to Apple Clock until those real-device tests pass.
